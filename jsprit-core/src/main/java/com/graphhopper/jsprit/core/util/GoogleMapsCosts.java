@@ -20,6 +20,11 @@
  */
 package com.graphhopper.jsprit.core.util;
 
+import com.google.maps.DirectionsApi;
+import com.google.maps.GeoApiContext;
+import com.google.maps.model.DirectionsResult;
+import com.google.maps.model.TravelMode;
+import com.google.maps.model.Unit;
 import com.graphhopper.jsprit.core.algorithm.VehicleRoutingAlgorithm;
 import com.graphhopper.jsprit.core.problem.Location;
 import com.graphhopper.jsprit.core.problem.cost.AbstractForwardVehicleRoutingTransportCosts;
@@ -28,6 +33,8 @@ import com.graphhopper.jsprit.core.problem.vehicle.Vehicle;
 import redis.clients.jedis.Jedis;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.JedisPoolConfig;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -46,13 +53,17 @@ public class GoogleMapsCosts extends AbstractForwardVehicleRoutingTransportCosts
     private final static Logger logger = LoggerFactory.getLogger(GoogleMapsCosts.class);
 
     private String redisURI = "redis://localhost:6379";
-    private Jedis jedis;
+    private JedisPool pool;
+    private GeoApiContext context;
 
-    public GoogleMapsCosts(Locations locations, String redisURI) {
+    public GoogleMapsCosts(Locations locations, String redisURI, String googleApiKey) {
         super();
         this.locations = locations;
         this.redisURI = redisURI;
-        this.jedis = new Jedis(this.redisURI);
+        this.pool = new JedisPool(new JedisPoolConfig(), this.redisURI);
+        this.context = new GeoApiContext.Builder()
+            .apiKey(googleApiKey)
+            .build();
     }
 
     @Override
@@ -62,18 +73,11 @@ public class GoogleMapsCosts extends AbstractForwardVehicleRoutingTransportCosts
 
     @Override
     public double getTransportCost(Location from, Location to, double time, Driver driver, Vehicle vehicle) {
-        String cachedResponse = jedis.get("distances/" + from.getCoordinate().toString() + ":" + to.getCoordinate().toString());
-        if (cachedResponse == null) {
-            double distance = calculateDistance(from, to);
-            if (vehicle != null && vehicle.getType() != null) {
-                return distance * vehicle.getType().getVehicleCostParams().perDistanceUnit;
-            }
-            logger.info("calculate cost [{}] from {} to {}: {}", c.incrementAndGet(), from.getCoordinate().toString(), to.getCoordinate().toString(), distance);
-            jedis.set("distances/" + from.getCoordinate().toString() + ":" + to.getCoordinate().toString(), Double.toString(distance));
-            jedis.expire("distances/" + from.getCoordinate().toString() + ":" + to.getCoordinate().toString(), 900);
-            return distance;
+        double distance = calculateDistance(from, to);
+        if (vehicle != null && vehicle.getType() != null) {
+            return distance * vehicle.getType().getVehicleCostParams().perDistanceUnit;
         }
-        return Double.parseDouble(cachedResponse);
+        return distance;
     }
 
     double calculateDistance(Location fromLocation, Location toLocation) {
@@ -81,8 +85,8 @@ public class GoogleMapsCosts extends AbstractForwardVehicleRoutingTransportCosts
     }
 
     double calculateDistance(Coordinate from, Coordinate to) {
-        try {
-            return GoogleMapsDistanceCalculator.calculateDistance(from, to) * detourFactor;
+        try (Jedis jedis = this.pool.getResource()) {
+            return GoogleMapsDistanceCalculator.calculateDistance(from, to, context, jedis, c) * detourFactor;
         } catch (NullPointerException e) {
             throw new NullPointerException("cannot calculate euclidean distance. coordinates are missing. either add coordinates or use another transport-cost-calculator.");
         }

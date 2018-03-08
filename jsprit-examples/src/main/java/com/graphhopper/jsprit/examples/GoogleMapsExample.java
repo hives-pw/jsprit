@@ -67,7 +67,7 @@ public class GoogleMapsExample {
         vrpBuilder.addVehicle(vehicle);
         vrpBuilder.addJob(service1).addJob(service2).addJob(service3).addJob(service4);
 
-        VehicleRoutingTransportCosts routingCosts = new GoogleMapsCosts(vrpBuilder.getLocations(), "redis://localhost:6379");
+        VehicleRoutingTransportCosts routingCosts = new GoogleMapsCosts(vrpBuilder.getLocations(), "localhost", "toto");
         vrpBuilder.setRoutingCost(routingCosts);
         VehicleRoutingProblem problem = vrpBuilder.build();
 
@@ -76,7 +76,7 @@ public class GoogleMapsExample {
          */
         VehicleRoutingAlgorithm algorithm  = Jsprit.Builder.newInstance(problem)
             .setProperty(Jsprit.Parameter.FAST_REGRET, "true")
-            .setProperty(Jsprit.Parameter.THREADS, "1")
+            .setProperty(Jsprit.Parameter.THREADS, "4")
             .setProperty(Jsprit.Parameter.FIXED_COST_PARAM, "1.") //Increase weight of the fixed cost to enable the force all vehicle workaround
             .buildAlgorithm();
 
